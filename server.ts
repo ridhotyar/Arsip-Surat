@@ -63,13 +63,12 @@ async function uploadToSupabase(file: Express.Multer.File) {
   return publicUrl;
 }
 
-async function startServer() {
-  const app = express();
-  app.use(express.json());
-  app.use("/uploads", express.static(uploadsDir));
-  const PORT = 3000;
+export const app = express();
+app.use(express.json());
+app.use("/uploads", express.static(uploadsDir));
+const PORT = 3000;
 
-  // --- API Routes ---
+// --- API Routes ---
 
   // Letters
   app.get("/api/letters", async (req, res) => {
@@ -279,8 +278,15 @@ async function startServer() {
     }
   });
 
+  // Global Error Handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error("Server Error:", err);
+    res.status(500).json({ error: "Internal Server Error", message: err.message });
+  });
+
+async function startServer() {
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -293,15 +299,13 @@ async function startServer() {
     });
   }
 
-  // Global Error Handler
-  app.use((err: any, req: any, res: any, next: any) => {
-    console.error("Server Error:", err);
-    res.status(500).json({ error: "Internal Server Error", message: err.message });
-  });
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
