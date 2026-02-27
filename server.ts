@@ -1,13 +1,13 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import multer from "multer";
-import fs from "fs";
 import { fileURLToPath } from 'url';
 import dotenv from "dotenv";
 
-dotenv.config();
+if (!process.env.VERCEL) {
+  dotenv.config();
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -290,6 +290,7 @@ const PORT = 3000;
 async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -297,9 +298,12 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, "dist")));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
-    });
+    // We don't need the wildcard route here for Vercel as vercel.json handles it
+    if (!process.env.VERCEL) {
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(__dirname, "dist", "index.html"));
+      });
+    }
   }
 
   if (!process.env.VERCEL) {
