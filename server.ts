@@ -12,33 +12,40 @@ if (!process.env.VERCEL) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Supabase Client
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error("CRITICAL ERROR: SUPABASE_URL or SUPABASE_KEY is missing from environment variables.");
+// Supabase Client Lazy Init
+let supabaseClient: any = null;
+function getSupabase() {
+  if (supabaseClient) return supabaseClient;
+  
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_KEY;
+  
+  if (!url || !key) {
+    throw new Error("SUPABASE_URL or SUPABASE_KEY is missing");
+  }
+  
+  supabaseClient = createClient(url, key);
+  return supabaseClient;
 }
-
-const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", supabaseKey || "placeholder");
 
 // Configure Multer for Memory Storage
 const storage = multer.memoryStorage();
-
 const upload = multer({ 
   storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
   fileFilter: (req, file, cb) => {
     const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "application/pdf"];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Hanya file gambar (jpeg, jpg, png) atau PDF yang diperbolehkan!"));
+      cb(new Error("Hanya file gambar (jpeg, jpg, png) atau PDF yang diperbolehkan!") as any, false);
     }
   }
 });
 
 // Helper function to upload to Supabase Storage
 async function uploadToSupabase(file: Express.Multer.File) {
+  const supabase = getSupabase();
   const fileExt = path.extname(file.originalname);
   const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${fileExt}`;
   const filePath = `uploads/${fileName}`;
@@ -83,17 +90,23 @@ const PORT = 3000;
 
   // Letters
   app.get("/api/letters", async (req, res) => {
-    const { data, error } = await supabase
-      .from('letters')
-      .select('*')
-      .order('id', { ascending: false });
-    
-    if (error) return res.status(500).json(error);
-    res.json(data);
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('letters')
+        .select('*')
+        .order('id', { ascending: false });
+      
+      if (error) return res.status(500).json(error);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.post("/api/letters", upload.single("file"), async (req, res) => {
     try {
+      const supabase = getSupabase();
       const { 
         receipt_date, security_date, completion_date, origin, 
         letter_date, letter_number, attachment, activity_time, activity_location, summary 
@@ -124,38 +137,44 @@ const PORT = 3000;
 
   // Dispositions
   app.get("/api/dispositions", async (req, res) => {
-    const { data, error } = await supabase
-      .from('dispositions')
-      .select(`
-        *,
-        letters (
-          origin,
-          activity_time,
-          activity_location,
-          summary
-        )
-      `)
-      .order('id', { ascending: false });
-    
-    if (error) return res.status(500).json(error);
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('dispositions')
+        .select(`
+          *,
+          letters (
+            origin,
+            activity_time,
+            activity_location,
+            summary
+          )
+        `)
+        .order('id', { ascending: false });
+      
+      if (error) return res.status(500).json(error);
 
-    // Flatten the response to match previous SQLite structure
-    const flattened = data.map((d: any) => {
-      const letter = Array.isArray(d.letters) ? d.letters[0] : d.letters;
-      return {
-        ...d,
-        origin: letter?.origin,
-        activity_time: letter?.activity_time,
-        activity_location: letter?.activity_location,
-        summary: letter?.summary
-      };
-    });
+      // Flatten the response to match previous SQLite structure
+      const flattened = data.map((d: any) => {
+        const letter = Array.isArray(d.letters) ? d.letters[0] : d.letters;
+        return {
+          ...d,
+          origin: letter?.origin,
+          activity_time: letter?.activity_time,
+          activity_location: letter?.activity_location,
+          summary: letter?.summary
+        };
+      });
 
-    res.json(flattened);
+      res.json(flattened);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.post("/api/dispositions", upload.single("file"), async (req, res) => {
     try {
+      const supabase = getSupabase();
       const { letter_id, forwarded_to, disposition_types, notes } = req.body;
       
       let file_path = null;
@@ -180,17 +199,23 @@ const PORT = 3000;
 
   // Agendas
   app.get("/api/agendas", async (req, res) => {
-    const { data, error } = await supabase
-      .from('agendas')
-      .select('*')
-      .order('id', { ascending: false });
-    
-    if (error) return res.status(500).json(error);
-    res.json(data);
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('agendas')
+        .select('*')
+        .order('id', { ascending: false });
+      
+      if (error) return res.status(500).json(error);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.post("/api/agendas", upload.single("file"), async (req, res) => {
     try {
+      const supabase = getSupabase();
       const { letter_id, origin, activity_time, activity_location, summary } = req.body;
       
       let file_path = null;
@@ -216,6 +241,7 @@ const PORT = 3000;
   // Dashboard Summary
   app.get("/api/summary", async (req, res) => {
     try {
+      const supabase = getSupabase();
       const [lettersCount, dispoCount, agendaCount, recentLetters] = await Promise.all([
         supabase.from('letters').select('*', { count: 'exact', head: true }),
         supabase.from('dispositions').select('*', { count: 'exact', head: true }),
@@ -224,7 +250,8 @@ const PORT = 3000;
       ]);
 
       // Agenda OPD (Combined from Dispositions and Agendas)
-      const { data: dispoAgendas } = await supabase
+      const supabaseInstance = getSupabase();
+      const { data: dispoAgendas } = await supabaseInstance
         .from('dispositions')
         .select(`
           forwarded_to,
@@ -236,7 +263,7 @@ const PORT = 3000;
         .order('id', { ascending: false })
         .limit(10);
 
-      const { data: kabanAgendas } = await supabase
+      const { data: kabanAgendas } = await supabaseInstance
         .from('agendas')
         .select('activity_time, activity_location')
         .order('id', { ascending: false })
