@@ -23,16 +23,8 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 
-// Configure Multer
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
-  },
-});
+// Configure Multer for Memory Storage
+const storage = multer.memoryStorage();
 
 const upload = multer({ 
   storage: storage,
@@ -45,6 +37,31 @@ const upload = multer({
     }
   }
 });
+
+// Helper function to upload to Supabase Storage
+async function uploadToSupabase(file: Express.Multer.File) {
+  const fileExt = path.extname(file.originalname);
+  const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${fileExt}`;
+  const filePath = `uploads/${fileName}`;
+
+  const { data, error } = await supabase.storage
+    .from('sisa-uploads')
+    .upload(filePath, file.buffer, {
+      contentType: file.mimetype,
+      upsert: false
+    });
+
+  if (error) {
+    console.error("Supabase Storage Error:", error);
+    throw error;
+  }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('sisa-uploads')
+    .getPublicUrl(filePath);
+
+  return publicUrl;
+}
 
 async function startServer() {
   const app = express();
@@ -66,24 +83,33 @@ async function startServer() {
   });
 
   app.post("/api/letters", upload.single("file"), async (req, res) => {
-    const { 
-      receipt_date, security_date, completion_date, origin, 
-      letter_date, letter_number, attachment, activity_time, activity_location, summary 
-    } = req.body;
-    const file_path = req.file ? `/uploads/${req.file.filename}` : null;
-    
-    const { data, error } = await supabase
-      .from('letters')
-      .insert([
-        { 
-          receipt_date, security_date, completion_date, origin, 
-          letter_date, letter_number, attachment, activity_time, activity_location, summary, file_path 
-        }
-      ])
-      .select();
-    
-    if (error) return res.status(500).json(error);
-    res.json({ id: data[0].id });
+    try {
+      const { 
+        receipt_date, security_date, completion_date, origin, 
+        letter_date, letter_number, attachment, activity_time, activity_location, summary 
+      } = req.body;
+      
+      let file_path = null;
+      if (req.file) {
+        file_path = await uploadToSupabase(req.file);
+      }
+      
+      const { data, error } = await supabase
+        .from('letters')
+        .insert([
+          { 
+            receipt_date, security_date, completion_date, origin, 
+            letter_date, letter_number, attachment, activity_time, activity_location, summary, file_path 
+          }
+        ])
+        .select();
+      
+      if (error) throw error;
+      res.json({ id: data[0].id });
+    } catch (err: any) {
+      console.error("API Error /api/letters:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Dispositions
@@ -119,18 +145,27 @@ async function startServer() {
   });
 
   app.post("/api/dispositions", upload.single("file"), async (req, res) => {
-    const { letter_id, forwarded_to, disposition_types, notes } = req.body;
-    const file_path = req.file ? `/uploads/${req.file.filename}` : null;
-    
-    const { data, error } = await supabase
-      .from('dispositions')
-      .insert([
-        { letter_id, forwarded_to, disposition_types, notes, file_path }
-      ])
-      .select();
+    try {
+      const { letter_id, forwarded_to, disposition_types, notes } = req.body;
+      
+      let file_path = null;
+      if (req.file) {
+        file_path = await uploadToSupabase(req.file);
+      }
+      
+      const { data, error } = await supabase
+        .from('dispositions')
+        .insert([
+          { letter_id, forwarded_to, disposition_types, notes, file_path }
+        ])
+        .select();
 
-    if (error) return res.status(500).json(error);
-    res.json({ id: data[0].id });
+      if (error) throw error;
+      res.json({ id: data[0].id });
+    } catch (err: any) {
+      console.error("API Error /api/dispositions:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Agendas
@@ -145,18 +180,27 @@ async function startServer() {
   });
 
   app.post("/api/agendas", upload.single("file"), async (req, res) => {
-    const { letter_id, origin, activity_time, activity_location, summary } = req.body;
-    const file_path = req.file ? `/uploads/${req.file.filename}` : null;
-    
-    const { data, error } = await supabase
-      .from('agendas')
-      .insert([
-        { letter_id: letter_id || null, origin, activity_time, activity_location, summary, file_path }
-      ])
-      .select();
+    try {
+      const { letter_id, origin, activity_time, activity_location, summary } = req.body;
+      
+      let file_path = null;
+      if (req.file) {
+        file_path = await uploadToSupabase(req.file);
+      }
+      
+      const { data, error } = await supabase
+        .from('agendas')
+        .insert([
+          { letter_id: letter_id || null, origin, activity_time, activity_location, summary, file_path }
+        ])
+        .select();
 
-    if (error) return res.status(500).json(error);
-    res.json({ id: data[0].id });
+      if (error) throw error;
+      res.json({ id: data[0].id });
+    } catch (err: any) {
+      console.error("API Error /api/agendas:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Dashboard Summary
