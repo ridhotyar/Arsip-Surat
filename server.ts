@@ -1,15 +1,21 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import Database from "better-sqlite3";
+import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import multer from "multer";
 import fs from "fs";
 import { fileURLToPath } from 'url';
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("sisa.db");
+// Supabase Client
+const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseKey = process.env.SUPABASE_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), "uploads");
@@ -40,55 +46,6 @@ const upload = multer({
   }
 });
 
-// Initialize Database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS letters (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    receipt_date TEXT,
-    security_date TEXT,
-    completion_date TEXT,
-    origin TEXT,
-    letter_date TEXT,
-    letter_number TEXT,
-    attachment TEXT,
-    activity_time TEXT,
-    activity_location TEXT,
-    summary TEXT,
-    file_path TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS dispositions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    letter_id INTEGER,
-    forwarded_to TEXT, -- JSON array
-    disposition_types TEXT, -- JSON array
-    notes TEXT,
-    file_path TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (letter_id) REFERENCES letters(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS agendas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    letter_id INTEGER NULL,
-    origin TEXT,
-    activity_time TEXT,
-    activity_location TEXT,
-    summary TEXT,
-    file_path TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (letter_id) REFERENCES letters(id)
-  );
-`);
-
-// Migration: Add columns if they don't exist (for existing databases)
-try { db.exec("ALTER TABLE letters ADD COLUMN file_path TEXT"); } catch (e) {}
-try { db.exec("ALTER TABLE letters ADD COLUMN activity_location TEXT"); } catch (e) {}
-try { db.exec("ALTER TABLE dispositions ADD COLUMN file_path TEXT"); } catch (e) {}
-try { db.exec("ALTER TABLE agendas ADD COLUMN file_path TEXT"); } catch (e) {}
-try { db.exec("ALTER TABLE agendas ADD COLUMN activity_location TEXT"); } catch (e) {}
-
 async function startServer() {
   const app = express();
   app.use(express.json());
@@ -98,116 +55,163 @@ async function startServer() {
   // --- API Routes ---
 
   // Letters
-  app.get("/api/letters", (req, res) => {
-    const letters = db.prepare("SELECT * FROM letters ORDER BY id DESC").all();
-    res.json(letters);
+  app.get("/api/letters", async (req, res) => {
+    const { data, error } = await supabase
+      .from('letters')
+      .select('*')
+      .order('id', { ascending: false });
+    
+    if (error) return res.status(500).json(error);
+    res.json(data);
   });
 
-  app.post("/api/letters", upload.single("file"), (req, res) => {
+  app.post("/api/letters", upload.single("file"), async (req, res) => {
     const { 
       receipt_date, security_date, completion_date, origin, 
       letter_date, letter_number, attachment, activity_time, activity_location, summary 
     } = req.body;
     const file_path = req.file ? `/uploads/${req.file.filename}` : null;
     
-    const info = db.prepare(`
-      INSERT INTO letters (
-        receipt_date, security_date, completion_date, origin, 
-        letter_date, letter_number, attachment, activity_time, activity_location, summary, file_path
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      receipt_date, security_date, completion_date, origin, 
-      letter_date, letter_number, attachment, activity_time, activity_location, summary, file_path
-    );
+    const { data, error } = await supabase
+      .from('letters')
+      .insert([
+        { 
+          receipt_date, security_date, completion_date, origin, 
+          letter_date, letter_number, attachment, activity_time, activity_location, summary, file_path 
+        }
+      ])
+      .select();
     
-    res.json({ id: info.lastInsertRowid });
+    if (error) return res.status(500).json(error);
+    res.json({ id: data[0].id });
   });
 
   // Dispositions
-  app.get("/api/dispositions", (req, res) => {
-    const dispositions = db.prepare(`
-      SELECT d.*, l.origin, l.activity_time, l.activity_location, l.summary 
-      FROM dispositions d
-      JOIN letters l ON d.letter_id = l.id
-      ORDER BY d.id DESC
-    `).all();
-    res.json(dispositions);
+  app.get("/api/dispositions", async (req, res) => {
+    const { data, error } = await supabase
+      .from('dispositions')
+      .select(`
+        *,
+        letters (
+          origin,
+          activity_time,
+          activity_location,
+          summary
+        )
+      `)
+      .order('id', { ascending: false });
+    
+    if (error) return res.status(500).json(error);
+
+    // Flatten the response to match previous SQLite structure
+    const flattened = data.map((d: any) => {
+      const letter = Array.isArray(d.letters) ? d.letters[0] : d.letters;
+      return {
+        ...d,
+        origin: letter?.origin,
+        activity_time: letter?.activity_time,
+        activity_location: letter?.activity_location,
+        summary: letter?.summary
+      };
+    });
+
+    res.json(flattened);
   });
 
-  app.post("/api/dispositions", upload.single("file"), (req, res) => {
+  app.post("/api/dispositions", upload.single("file"), async (req, res) => {
     const { letter_id, forwarded_to, disposition_types, notes } = req.body;
     const file_path = req.file ? `/uploads/${req.file.filename}` : null;
     
-    const info = db.prepare(`
-      INSERT INTO dispositions (letter_id, forwarded_to, disposition_types, notes, file_path)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(letter_id, forwarded_to, disposition_types, notes, file_path);
-    res.json({ id: info.lastInsertRowid });
+    const { data, error } = await supabase
+      .from('dispositions')
+      .insert([
+        { letter_id, forwarded_to, disposition_types, notes, file_path }
+      ])
+      .select();
+
+    if (error) return res.status(500).json(error);
+    res.json({ id: data[0].id });
   });
 
   // Agendas
-  app.get("/api/agendas", (req, res) => {
-    const agendas = db.prepare("SELECT * FROM agendas ORDER BY id DESC").all();
-    res.json(agendas);
+  app.get("/api/agendas", async (req, res) => {
+    const { data, error } = await supabase
+      .from('agendas')
+      .select('*')
+      .order('id', { ascending: false });
+    
+    if (error) return res.status(500).json(error);
+    res.json(data);
   });
 
-  app.post("/api/agendas", upload.single("file"), (req, res) => {
+  app.post("/api/agendas", upload.single("file"), async (req, res) => {
     const { letter_id, origin, activity_time, activity_location, summary } = req.body;
     const file_path = req.file ? `/uploads/${req.file.filename}` : null;
     
-    const info = db.prepare(`
-      INSERT INTO agendas (letter_id, origin, activity_time, activity_location, summary, file_path)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(letter_id || null, origin, activity_time, activity_location, summary, file_path);
-    res.json({ id: info.lastInsertRowid });
+    const { data, error } = await supabase
+      .from('agendas')
+      .insert([
+        { letter_id: letter_id || null, origin, activity_time, activity_location, summary, file_path }
+      ])
+      .select();
+
+    if (error) return res.status(500).json(error);
+    res.json({ id: data[0].id });
   });
 
   // Dashboard Summary
-  app.get("/api/summary", (req, res) => {
+  app.get("/api/summary", async (req, res) => {
     try {
-      const totalLetters = db.prepare("SELECT COUNT(*) as count FROM letters").get().count;
-      const totalDispositions = db.prepare("SELECT COUNT(*) as count FROM dispositions").get().count;
-      const totalAgendas = db.prepare("SELECT COUNT(*) as count FROM agendas").get().count;
-      
-      // Recent letters
-      const recentLetters = db.prepare("SELECT * FROM letters ORDER BY id DESC LIMIT 5").all();
+      const [lettersCount, dispoCount, agendaCount, recentLetters] = await Promise.all([
+        supabase.from('letters').select('*', { count: 'exact', head: true }),
+        supabase.from('dispositions').select('*', { count: 'exact', head: true }),
+        supabase.from('agendas').select('*', { count: 'exact', head: true }),
+        supabase.from('letters').select('*').order('id', { ascending: false }).limit(5)
+      ]);
 
       // Agenda OPD (Combined from Dispositions and Agendas)
-      const opdAgendasFromDispo = db.prepare(`
-        SELECT 
-          l.activity_time, 
-          l.activity_location, 
-          d.forwarded_to as attended_by,
-          'disposition' as source
-        FROM dispositions d
-        JOIN letters l ON d.letter_id = l.id
-        ORDER BY l.activity_time DESC
-        LIMIT 10
-      `).all().map(item => {
+      const { data: dispoAgendas } = await supabase
+        .from('dispositions')
+        .select(`
+          forwarded_to,
+          letters (
+            activity_time,
+            activity_location
+          )
+        `)
+        .order('id', { ascending: false })
+        .limit(10);
+
+      const { data: kabanAgendas } = await supabase
+        .from('agendas')
+        .select('activity_time, activity_location')
+        .order('id', { ascending: false })
+        .limit(10);
+
+      const opdAgendasFromDispo = (dispoAgendas || []).map((item: any) => {
         let attended = [];
         try {
-          attended = item.attended_by ? JSON.parse(item.attended_by) : [];
+          attended = item.forwarded_to ? JSON.parse(item.forwarded_to) : [];
         } catch (e) {
           attended = [];
         }
+        
+        // Supabase might return letters as an object or an array depending on schema
+        const letter = Array.isArray(item.letters) ? item.letters[0] : item.letters;
+
         return {
-          ...item,
-          attended_by: Array.isArray(attended) ? attended : []
+          activity_time: letter?.activity_time,
+          activity_location: letter?.activity_location,
+          attended_by: Array.isArray(attended) ? attended : [],
+          source: 'disposition'
         };
       });
 
-      const opdAgendasFromKaban = db.prepare(`
-        SELECT 
-          activity_time, 
-          activity_location, 
-          '["Kaban"]' as attended_by,
-          'agenda' as source
-        FROM agendas
-        ORDER BY activity_time DESC
-        LIMIT 10
-      `).all().map(item => ({
-        ...item,
-        attended_by: JSON.parse(item.attended_by)
+      const opdAgendasFromKaban = (kabanAgendas || []).map(item => ({
+        activity_time: item.activity_time,
+        activity_location: item.activity_location,
+        attended_by: ["Kaban"],
+        source: 'agenda'
       }));
 
       const agendaOPD = [...opdAgendasFromDispo, ...opdAgendasFromKaban]
@@ -219,10 +223,10 @@ async function startServer() {
         .slice(0, 10);
       
       res.json({
-        totalLetters,
-        totalDispositions,
-        totalAgendas,
-        recentLetters,
+        totalLetters: lettersCount.count || 0,
+        totalDispositions: dispoCount.count || 0,
+        totalAgendas: agendaCount.count || 0,
+        recentLetters: recentLetters.data || [],
         agendaOPD
       });
     } catch (error) {
