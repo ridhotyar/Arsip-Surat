@@ -15,17 +15,23 @@ const __dirname = path.dirname(__filename);
 // Supabase Client Lazy Init
 let supabaseClient: any = null;
 function getSupabase() {
-  if (supabaseClient) return supabaseClient;
-  
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_KEY;
-  
-  if (!url || !key) {
-    throw new Error("SUPABASE_URL or SUPABASE_KEY is missing");
+  try {
+    if (supabaseClient) return supabaseClient;
+    
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_KEY;
+    
+    if (!url || !key) {
+      console.error("Missing SUPABASE_URL or SUPABASE_KEY");
+      return null;
+    }
+    
+    supabaseClient = createClient(url, key);
+    return supabaseClient;
+  } catch (err) {
+    console.error("Failed to initialize Supabase:", err);
+    return null;
   }
-  
-  supabaseClient = createClient(url, key);
-  return supabaseClient;
 }
 
 // Configure Multer for Memory Storage
@@ -92,13 +98,15 @@ const PORT = 3000;
   app.get("/api/letters", async (req, res) => {
     try {
       const supabase = getSupabase();
+      if (!supabase) return res.status(500).json({ error: "Database connection not initialized" });
+      
       const { data, error } = await supabase
         .from('letters')
         .select('*')
         .order('id', { ascending: false });
       
       if (error) return res.status(500).json(error);
-      res.json(data);
+      res.json(data || []);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -347,5 +355,14 @@ async function startServer() {
     });
   }
 }
+
+// Handle unhandled rejections and exceptions to prevent silent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception thrown:', err);
+});
 
 startServer();
