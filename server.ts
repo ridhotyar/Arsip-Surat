@@ -65,6 +65,18 @@ async function uploadToSupabase(file: Express.Multer.File) {
 export const app = express();
 app.use(express.json());
 
+// Health check route for diagnosis
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "OK", 
+    timestamp: new Date().toISOString(),
+    env: {
+      hasUrl: !!process.env.SUPABASE_URL,
+      hasKey: !!process.env.SUPABASE_KEY
+    }
+  });
+});
+
 const PORT = 3000;
 
 // --- API Routes ---
@@ -282,37 +294,31 @@ const PORT = 3000;
     console.error("Server Error:", err);
     res.status(err.status || 500).json({ 
       error: "Internal Server Error", 
-      message: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      message: err.message
     });
   });
 
 async function startServer() {
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.join(__dirname, "dist")));
-    // We don't need the wildcard route here for Vercel as vercel.json handles it
-    if (!process.env.VERCEL) {
+  // ONLY run Vite or Static serving if NOT on Vercel
+  if (!process.env.VERCEL) {
+    if (process.env.NODE_ENV !== "production") {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      app.use(express.static(path.join(__dirname, "dist")));
       app.get("*", (req, res) => {
         res.sendFile(path.join(__dirname, "dist", "index.html"));
       });
     }
-  }
 
-  if (!process.env.VERCEL) {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
   }
 }
 
-if (!process.env.VERCEL) {
-  startServer();
-}
+startServer();

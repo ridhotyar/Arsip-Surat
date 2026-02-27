@@ -944,6 +944,7 @@ export default function App() {
                         const form = e.target.form!;
                         (form.elements.namedItem('origin') as HTMLInputElement).value = letter.origin;
                         (form.elements.namedItem('activity_time') as HTMLInputElement).value = letter.activity_time;
+                        (form.elements.namedItem('activity_location') as HTMLInputElement).value = letter.activity_location;
                         (form.elements.namedItem('summary') as HTMLTextAreaElement).value = letter.summary;
                       }
                     }}
