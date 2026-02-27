@@ -13,15 +13,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Supabase Client
-const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
+if (!supabaseUrl || !supabaseKey) {
+  console.error("CRITICAL ERROR: SUPABASE_URL or SUPABASE_KEY is missing from environment variables.");
 }
+
+const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", supabaseKey || "placeholder");
 
 // Configure Multer for Memory Storage
 const storage = multer.memoryStorage();
@@ -65,7 +64,7 @@ async function uploadToSupabase(file: Express.Multer.File) {
 
 export const app = express();
 app.use(express.json());
-app.use("/uploads", express.static(uploadsDir));
+
 const PORT = 3000;
 
 // --- API Routes ---
@@ -281,7 +280,11 @@ const PORT = 3000;
   // Global Error Handler
   app.use((err: any, req: any, res: any, next: any) => {
     console.error("Server Error:", err);
-    res.status(500).json({ error: "Internal Server Error", message: err.message });
+    res.status(err.status || 500).json({ 
+      error: "Internal Server Error", 
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   });
 
 async function startServer() {
