@@ -94,6 +94,31 @@ const PORT = 3000;
 
 // --- API Routes ---
 
+  // Login
+  app.post("/api/login", async (req, res) => {
+    const { email, password } = req.body;
+    try {
+      const supabase = getSupabase();
+      if (!supabase) return res.status(500).json({ error: "Supabase not initialized" });
+
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .eq('password', password)
+        .single();
+
+      if (error || !data) {
+        return res.status(401).json({ error: "Email atau Password salah!" });
+      }
+
+      res.json({ success: true, user: { email: data.email } });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+
   // Letters
   app.get("/api/letters", async (req, res) => {
     try {
@@ -112,7 +137,7 @@ const PORT = 3000;
     }
   });
 
-  app.post("/api/letters", upload.single("file"), async (req, res) => {
+  app.post("/api/letters", upload.array("files"), async (req, res) => {
     try {
       const supabase = getSupabase();
       const { 
@@ -120,10 +145,15 @@ const PORT = 3000;
         letter_date, letter_number, attachment, activity_time, activity_location, summary 
       } = req.body;
       
-      let file_path = null;
-      if (req.file) {
-        file_path = await uploadToSupabase(req.file);
+      let file_paths = [];
+      if (req.files && Array.isArray(req.files)) {
+        for (const file of req.files) {
+          const path = await uploadToSupabase(file);
+          file_paths.push(path);
+        }
       }
+      
+      const file_path = file_paths.length > 0 ? JSON.stringify(file_paths) : null;
       
       const { data, error } = await supabase
         .from('letters')
@@ -143,6 +173,69 @@ const PORT = 3000;
     }
   });
 
+  app.put("/api/letters/:id", upload.array("files"), async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { id } = req.params;
+      const { 
+        receipt_date, security_date, completion_date, origin, 
+        letter_date, letter_number, attachment, activity_time, activity_location, summary, existing_files 
+      } = req.body;
+      
+      let file_paths = [];
+      try {
+        if (existing_files) {
+          const parsed = JSON.parse(existing_files);
+          if (Array.isArray(parsed)) {
+            file_paths = parsed;
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing existing_files:", e);
+      }
+
+      if (req.files && Array.isArray(req.files)) {
+        for (const file of req.files) {
+          const path = await uploadToSupabase(file);
+          file_paths.push(path);
+        }
+      }
+      
+      const file_path = file_paths.length > 0 ? JSON.stringify(file_paths) : null;
+      
+      const { data, error } = await supabase
+        .from('letters')
+        .update({ 
+          receipt_date, security_date, completion_date, origin, 
+          letter_date, letter_number, attachment, activity_time, activity_location, summary, file_path 
+        })
+        .eq('id', Number(id))
+        .select();
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        return res.status(404).json({ error: "Data surat tidak ditemukan" });
+      }
+
+      // Sync linked agendas if any
+      await supabase
+        .from('agendas')
+        .update({ origin, activity_time, activity_location, summary, file_path })
+        .eq('letter_id', Number(id));
+
+      // Sync linked dispositions if any
+      await supabase
+        .from('dispositions')
+        .update({ file_path })
+        .eq('letter_id', Number(id));
+
+      res.json(data[0]);
+    } catch (err: any) {
+      console.error("API Error PUT /api/letters:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Dispositions
   app.get("/api/dispositions", async (req, res) => {
     try {
@@ -151,26 +244,22 @@ const PORT = 3000;
         .from('dispositions')
         .select(`
           *,
-          letters (
-            origin,
-            activity_time,
-            activity_location,
-            summary
-          )
+          letters (*)
         `)
         .order('id', { ascending: false });
       
       if (error) return res.status(500).json(error);
 
       // Flatten the response to match previous SQLite structure
-      const flattened = data.map((d: any) => {
+      const flattened = (data || []).map((d: any) => {
         const letter = Array.isArray(d.letters) ? d.letters[0] : d.letters;
         return {
           ...d,
-          origin: letter?.origin,
-          activity_time: letter?.activity_time,
-          activity_location: letter?.activity_location,
-          summary: letter?.summary
+          origin: letter?.origin || d.origin,
+          activity_time: letter?.activity_time || d.activity_time,
+          activity_location: letter?.activity_location || d.activity_location,
+          summary: letter?.summary || d.summary,
+          file_path: d.file_path
         };
       });
 
@@ -180,15 +269,40 @@ const PORT = 3000;
     }
   });
 
-  app.post("/api/dispositions", upload.single("file"), async (req, res) => {
+  app.post("/api/dispositions", upload.array("files"), async (req, res) => {
     try {
       const supabase = getSupabase();
       const { letter_id, forwarded_to, disposition_types, notes } = req.body;
+
+      // Validation: Check if letter already has disposition or is in agenda
+      const { data: existingDispo } = await supabase
+        .from('dispositions')
+        .select('id')
+        .eq('letter_id', letter_id)
+        .maybeSingle();
       
-      let file_path = null;
-      if (req.file) {
-        file_path = await uploadToSupabase(req.file);
+      const { data: existingAgenda } = await supabase
+        .from('agendas')
+        .select('id')
+        .eq('letter_id', letter_id)
+        .maybeSingle();
+
+      if (existingDispo) {
+        return res.status(400).json({ error: "Surat ini sudah didisposisi." });
       }
+      if (existingAgenda) {
+        return res.status(400).json({ error: "Surat ini sudah menjadi agenda kaban." });
+      }
+      
+      let file_paths = [];
+      if (req.files && Array.isArray(req.files)) {
+        for (const file of req.files) {
+          const path = await uploadToSupabase(file);
+          file_paths.push(path);
+        }
+      }
+      
+      const file_path = file_paths.length > 0 ? JSON.stringify(file_paths) : null;
       
       const { data, error } = await supabase
         .from('dispositions')
@@ -211,25 +325,72 @@ const PORT = 3000;
       const supabase = getSupabase();
       const { data, error } = await supabase
         .from('agendas')
-        .select('*')
+        .select(`
+          *,
+          letters (*)
+        `)
         .order('id', { ascending: false });
       
       if (error) return res.status(500).json(error);
-      res.json(data);
+      
+      // Flatten for easier use in frontend
+      const flattened = (data || []).map((item: any) => {
+        const letter = Array.isArray(item.letters) ? item.letters[0] : item.letters;
+        if (letter) {
+          return {
+            ...item,
+            origin: letter.origin,
+            activity_time: letter.activity_time,
+            activity_location: letter.activity_location,
+            summary: letter.summary,
+            file_path: item.file_path
+          };
+        }
+        return item;
+      });
+
+      res.json(flattened);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.post("/api/agendas", upload.single("file"), async (req, res) => {
+  app.post("/api/agendas", upload.array("files"), async (req, res) => {
     try {
       const supabase = getSupabase();
       const { letter_id, origin, activity_time, activity_location, summary } = req.body;
-      
-      let file_path = null;
-      if (req.file) {
-        file_path = await uploadToSupabase(req.file);
+
+      // Validation: If letter_id is provided, check if it already has disposition or is in agenda
+      if (letter_id) {
+        const { data: existingDispo } = await supabase
+          .from('dispositions')
+          .select('id')
+          .eq('letter_id', letter_id)
+          .maybeSingle();
+        
+        const { data: existingAgenda } = await supabase
+          .from('agendas')
+          .select('id')
+          .eq('letter_id', letter_id)
+          .maybeSingle();
+
+        if (existingDispo) {
+          return res.status(400).json({ error: "Surat ini sudah didisposisi." });
+        }
+        if (existingAgenda) {
+          return res.status(400).json({ error: "Surat ini sudah ada di agenda kaban." });
+        }
       }
+      
+      let file_paths = [];
+      if (req.files && Array.isArray(req.files)) {
+        for (const file of req.files) {
+          const path = await uploadToSupabase(file);
+          file_paths.push(path);
+        }
+      }
+      
+      const file_path = file_paths.length > 0 ? JSON.stringify(file_paths) : null;
       
       const { data, error } = await supabase
         .from('agendas')
@@ -242,6 +403,94 @@ const PORT = 3000;
       res.json({ id: data[0].id });
     } catch (err: any) {
       console.error("API Error /api/agendas:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/dispositions/:id", upload.array("files"), async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { id } = req.params;
+      const { forwarded_to, disposition_types, notes, existing_files } = req.body;
+      
+      let file_paths = [];
+      try {
+        if (existing_files) {
+          const parsed = JSON.parse(existing_files);
+          if (Array.isArray(parsed)) {
+            file_paths = parsed;
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing existing_files:", e);
+      }
+
+      if (req.files && Array.isArray(req.files)) {
+        for (const file of req.files) {
+          const path = await uploadToSupabase(file);
+          file_paths.push(path);
+        }
+      }
+      
+      const file_path = file_paths.length > 0 ? JSON.stringify(file_paths) : null;
+      
+      const { data, error } = await supabase
+        .from('dispositions')
+        .update({ forwarded_to, disposition_types, notes, file_path })
+        .eq('id', Number(id))
+        .select();
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        return res.status(404).json({ error: "Data disposisi tidak ditemukan" });
+      }
+      res.json(data[0]);
+    } catch (err: any) {
+      console.error("API Error PUT /api/dispositions:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/agendas/:id", upload.array("files"), async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { id } = req.params;
+      const { origin, activity_time, activity_location, summary, existing_files } = req.body;
+      
+      let file_paths = [];
+      try {
+        if (existing_files) {
+          const parsed = JSON.parse(existing_files);
+          if (Array.isArray(parsed)) {
+            file_paths = parsed;
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing existing_files:", e);
+      }
+
+      if (req.files && Array.isArray(req.files)) {
+        for (const file of req.files) {
+          const path = await uploadToSupabase(file);
+          file_paths.push(path);
+        }
+      }
+      
+      const file_path = file_paths.length > 0 ? JSON.stringify(file_paths) : null;
+      
+      const { data, error } = await supabase
+        .from('agendas')
+        .update({ origin, activity_time, activity_location, summary, file_path })
+        .eq('id', Number(id))
+        .select();
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        return res.status(404).json({ error: "Data agenda tidak ditemukan" });
+      }
+      res.json(data[0]);
+    } catch (err: any) {
+      console.error("API Error PUT /api/agendas:", err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -262,18 +511,18 @@ const PORT = 3000;
       const { data: dispoAgendas } = await supabaseInstance
         .from('dispositions')
         .select(`
-          forwarded_to,
-          letters (
-            activity_time,
-            activity_location
-          )
+          *,
+          letters (*)
         `)
         .order('id', { ascending: false })
         .limit(10);
 
       const { data: kabanAgendas } = await supabaseInstance
         .from('agendas')
-        .select('activity_time, activity_location')
+        .select(`
+          *,
+          letters (*)
+        `)
         .order('id', { ascending: false })
         .limit(10);
 
@@ -285,23 +534,27 @@ const PORT = 3000;
           attended = [];
         }
         
-        // Supabase might return letters as an object or an array depending on schema
         const letter = Array.isArray(item.letters) ? item.letters[0] : item.letters;
 
         return {
           activity_time: letter?.activity_time,
           activity_location: letter?.activity_location,
           attended_by: Array.isArray(attended) ? attended : [],
-          source: 'disposition'
+          source: 'disposition',
+          full_data: item
         };
       });
 
-      const opdAgendasFromKaban = (kabanAgendas || []).map(item => ({
-        activity_time: item.activity_time,
-        activity_location: item.activity_location,
-        attended_by: ["Kaban"],
-        source: 'agenda'
-      }));
+      const opdAgendasFromKaban = (kabanAgendas || []).map((item: any) => {
+        const letter = Array.isArray(item.letters) ? item.letters[0] : item.letters;
+        return {
+          activity_time: item.activity_time || letter?.activity_time,
+          activity_location: item.activity_location || letter?.activity_location,
+          attended_by: ["Kaban"],
+          source: 'agenda',
+          full_data: item
+        };
+      });
 
       const agendaOPD = [...opdAgendasFromDispo, ...opdAgendasFromKaban]
         .sort((a, b) => {
@@ -334,16 +587,19 @@ const PORT = 3000;
   });
 
 async function startServer() {
-  // ONLY run Vite or Static serving if NOT on Vercel
-  if (!process.env.VERCEL) {
+  console.log("Starting server process...");
+  try {
     if (process.env.NODE_ENV !== "production") {
+      console.log("Initializing Vite dev server...");
       const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
       });
       app.use(vite.middlewares);
+      console.log("Vite middleware attached.");
     } else {
+      console.log("Serving static files from dist...");
       app.use(express.static(path.join(__dirname, "dist")));
       app.get("*", (req, res) => {
         res.sendFile(path.join(__dirname, "dist", "index.html"));
@@ -351,8 +607,12 @@ async function startServer() {
     }
 
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Supabase URL: ${process.env.SUPABASE_URL ? 'Configured' : 'MISSING'}`);
     });
+  } catch (err) {
+    console.error("Failed to start server:", err);
   }
 }
 
