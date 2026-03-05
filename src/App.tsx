@@ -862,8 +862,9 @@ export default function App() {
               <div class="footer-title">CATATAN:</div>
             </div>
             <div class="footer-col">
+              <div class="footer-title">Paraf/Tanggal</div>
               <div class="signature-area">
-                <div class="signature-title">KEPALA BAKESBANGPOLDAGRI PROVINSI NTB,</div>
+                <div class="signature-title">Plh. KEPALA BAKESBANGPOLDAGRI PROVINSI NTB,</div>
                 <div style="height: 90px;"></div>
                 <div class="signature-line"></div>
                 <div class="nip-line">NIP. __________________</div>
