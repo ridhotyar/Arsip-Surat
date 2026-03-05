@@ -1459,7 +1459,7 @@ export default function App() {
                       name="email" 
                       type="email" 
                       required 
-                      defaultValue="ridhoimanz@gmail.com"
+                      defaultValue="kesbangpolntb@ps.com"
                       className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
                       placeholder="email@example.com"
                     />
