@@ -59,6 +59,7 @@ interface Disposition {
   activity_location: string;
   summary: string;
   created_at: string;
+  letters?: Letter | Letter[];
 }
 
 interface Agenda {
@@ -70,6 +71,7 @@ interface Agenda {
   summary: string;
   file_path: string | null;
   created_at: string;
+  letters?: Letter | Letter[];
 }
 
 interface DashboardSummary {
@@ -711,6 +713,15 @@ export default function App() {
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
 
+  // Public Search & Pagination
+  const [publicAgendaSearch, setPublicAgendaSearch] = useState('');
+  const [publicAgendaDate, setPublicAgendaDate] = useState('');
+  const [publicLetterSearch, setPublicLetterSearch] = useState('');
+  const [publicLetterDate, setPublicLetterDate] = useState('');
+  const [publicAgendaPage, setPublicAgendaPage] = useState(1);
+  const [publicLetterPage, setPublicLetterPage] = useState(1);
+  const publicPageSize = 5;
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -1234,35 +1245,159 @@ export default function App() {
     return agendas.some(a => a.letter_id === letterId);
   };
 
-  const PaginationUI = ({ totalItems, currentItemsCount }: { totalItems: number, currentItemsCount: number }) => (
+  // --- Public Dashboard Logic ---
+
+  const fullAgendaOPD = useMemo(() => {
+    const fromDispo = dispositions.map(item => {
+      const letter = Array.isArray(item.letters) ? item.letters[0] : item.letters;
+      let attended = [];
+      try {
+        attended = item.forwarded_to ? JSON.parse(item.forwarded_to) : [];
+      } catch (e) {
+        attended = [];
+      }
+      return {
+        activity_time: item.activity_time || letter?.activity_time,
+        activity_location: item.activity_location || letter?.activity_location,
+        attended_by: Array.isArray(attended) ? attended : [],
+        source: 'disposition' as const,
+        full_data: item,
+        summary: item.summary || letter?.summary,
+        origin: item.origin || letter?.origin
+      };
+    });
+
+    const fromKaban = agendas.map(item => {
+      const letter = Array.isArray(item.letters) ? item.letters[0] : item.letters;
+      return {
+        activity_time: item.activity_time || letter?.activity_time,
+        activity_location: item.activity_location || letter?.activity_location,
+        attended_by: ["Kaban"],
+        source: 'agenda' as const,
+        full_data: item,
+        summary: item.summary || letter?.summary,
+        origin: item.origin || letter?.origin
+      };
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return [...fromDispo, ...fromKaban]
+      .filter(item => {
+        if (!item.activity_time && !item.activity_location) return false;
+        
+        // Only show agendas from today onwards
+        if (item.activity_time) {
+          const agendaDate = new Date(item.activity_time);
+          agendaDate.setHours(0, 0, 0, 0);
+          if (agendaDate < today) return false;
+        }
+        
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = a.activity_time ? new Date(a.activity_time).getTime() : 0;
+        const timeB = b.activity_time ? new Date(b.activity_time).getTime() : 0;
+        return timeB - timeA;
+      });
+  }, [dispositions, agendas]);
+
+  const filteredPublicAgendas = useMemo(() => {
+    return fullAgendaOPD.filter(item => {
+      const search = publicAgendaSearch.toLowerCase();
+      const dateStr = formatDateTime(item.activity_time).toLowerCase();
+      
+      const matchesSearch = (
+        item.activity_location?.toLowerCase().includes(search) ||
+        item.summary?.toLowerCase().includes(search) ||
+        item.origin?.toLowerCase().includes(search) ||
+        dateStr.includes(search)
+      );
+
+      const matchesDate = !publicAgendaDate || (item.activity_time && item.activity_time.startsWith(publicAgendaDate));
+
+      return matchesSearch && matchesDate;
+    });
+  }, [fullAgendaOPD, publicAgendaSearch, publicAgendaDate]);
+
+  const paginatedPublicAgendas = useMemo(() => {
+    const start = (publicAgendaPage - 1) * publicPageSize;
+    return filteredPublicAgendas.slice(start, start + publicPageSize);
+  }, [filteredPublicAgendas, publicAgendaPage]);
+
+  const filteredPublicLetters = useMemo(() => {
+    return letters
+      .filter(l => {
+        const search = publicLetterSearch.toLowerCase();
+        const dateStr = new Date(l.receipt_date).toLocaleDateString('id-ID').toLowerCase();
+        
+        const matchesSearch = (
+          l.origin.toLowerCase().includes(search) ||
+          l.letter_number.toLowerCase().includes(search) ||
+          l.summary.toLowerCase().includes(search) ||
+          dateStr.includes(search)
+        );
+
+        const matchesDate = !publicLetterDate || l.receipt_date === publicLetterDate;
+
+        return matchesSearch && matchesDate;
+      })
+      .sort((a, b) => new Date(b.receipt_date).getTime() - new Date(a.receipt_date).getTime());
+  }, [letters, publicLetterSearch, publicLetterDate]);
+
+  const paginatedPublicLetters = useMemo(() => {
+    const start = (publicLetterPage - 1) * publicPageSize;
+    return filteredPublicLetters.slice(start, start + publicPageSize);
+  }, [filteredPublicLetters, publicLetterPage]);
+
+  const PaginationUI = ({ 
+    totalItems, 
+    currentPage, 
+    pageSize, 
+    onPageChange, 
+    onPageSizeChange,
+    showPageSize = true
+  }: { 
+    totalItems: number, 
+    currentPage: number, 
+    pageSize: number, 
+    onPageChange: (page: number) => void,
+    onPageSizeChange?: (size: number) => void,
+    showPageSize?: boolean
+  }) => (
     <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
       <div className="flex items-center gap-4">
-        <span className="text-sm text-slate-500">Tampilkan</span>
-        <select 
-          className="bg-white border border-slate-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          value={pageSize}
-          onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
-        >
-          {[5, 10, 25, 50, 100].map(size => (
-            <option key={size} value={size}>{size}</option>
-          ))}
-        </select>
+        {showPageSize && onPageSizeChange && (
+          <>
+            <span className="text-sm text-slate-500">Tampilkan</span>
+            <select 
+              className="bg-white border border-slate-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={pageSize}
+              onChange={(e) => { onPageSizeChange(Number(e.target.value)); onPageChange(1); }}
+            >
+              {[5, 10, 25, 50, 100].map(size => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </>
+        )}
         <span className="text-sm text-slate-500">
-          {Math.min(totalItems, (currentPage - 1) * pageSize + 1)} - {Math.min(totalItems, currentPage * pageSize)} dari {totalItems}
+          {totalItems > 0 ? Math.min(totalItems, (currentPage - 1) * pageSize + 1) : 0} - {Math.min(totalItems, currentPage * pageSize)} dari {totalItems}
         </span>
       </div>
       
       <div className="flex gap-2">
         <button 
           disabled={currentPage === 1}
-          onClick={() => setCurrentPage(prev => prev - 1)}
+          onClick={() => onPageChange(currentPage - 1)}
           className="p-2 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <ChevronLeft size={18} />
         </button>
         <button 
           disabled={currentPage * pageSize >= totalItems}
-          onClick={() => setCurrentPage(prev => prev + 1)}
+          onClick={() => onPageChange(currentPage + 1)}
           className="p-2 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <ChevronRight size={18} />
@@ -1311,11 +1446,34 @@ export default function App() {
               >
                 {/* Agenda OPD Section */}
                 <div className="card overflow-hidden">
-                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
+                  <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white">
                     <h3 className="font-bold text-slate-800">Agenda OPD</h3>
-                    <div className="flex gap-2">
-                      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded uppercase">Disposisi</span>
-                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-bold rounded uppercase">Kaban</span>
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                          <input 
+                            type="text" 
+                            placeholder="Cari agenda..." 
+                            className="pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full sm:w-48"
+                            value={publicAgendaSearch}
+                            onChange={(e) => { setPublicAgendaSearch(e.target.value); setPublicAgendaPage(1); }}
+                          />
+                        </div>
+                        <div className="relative">
+                          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                          <input 
+                            type="date" 
+                            className="pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full sm:w-40"
+                            value={publicAgendaDate}
+                            onChange={(e) => { setPublicAgendaDate(e.target.value); setPublicAgendaPage(1); }}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded uppercase">Disposisi</span>
+                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-bold rounded uppercase">Kaban</span>
+                      </div>
                     </div>
                   </div>
                   <div className="overflow-x-auto">
@@ -1329,7 +1487,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white">
-                        {summary?.agendaOPD.map((item, idx) => (
+                        {paginatedPublicAgendas.map((item, idx) => (
                           <tr key={idx} className="hover:bg-slate-50 transition-colors">
                             <td className="px-6 py-4 text-sm text-slate-600">{formatDateTime(item.activity_time)}</td>
                             <td className="px-6 py-4 text-sm font-medium text-slate-800">{item.activity_location || '-'}</td>
@@ -1355,20 +1513,48 @@ export default function App() {
                             </td>
                           </tr>
                         ))}
-                        {(!summary || summary.agendaOPD.length === 0) && (
+                        {paginatedPublicAgendas.length === 0 && (
                           <tr>
-                            <td colSpan={4} className="px-6 py-12 text-center text-slate-400 italic">Tidak ada agenda hari ini.</td>
+                            <td colSpan={4} className="px-6 py-12 text-center text-slate-400 italic">Tidak ada agenda ditemukan.</td>
                           </tr>
                         )}
                       </tbody>
                     </table>
                   </div>
+                  <PaginationUI 
+                    totalItems={filteredPublicAgendas.length} 
+                    currentPage={publicAgendaPage} 
+                    pageSize={publicPageSize} 
+                    onPageChange={setPublicAgendaPage}
+                    showPageSize={false}
+                  />
                 </div>
 
                 {/* Recent Letters Section */}
                 <div className="card overflow-hidden">
-                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
+                  <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white">
                     <h3 className="font-bold text-slate-800">Surat Masuk Terbaru</h3>
+                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                      <div className="relative flex-1 sm:flex-none">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input 
+                          type="text" 
+                          placeholder="Cari surat..." 
+                          className="pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full sm:w-48"
+                          value={publicLetterSearch}
+                          onChange={(e) => { setPublicLetterSearch(e.target.value); setPublicLetterPage(1); }}
+                        />
+                      </div>
+                      <div className="relative flex-1 sm:flex-none">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input 
+                          type="date" 
+                          className="pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full sm:w-40"
+                          value={publicLetterDate}
+                          onChange={(e) => { setPublicLetterDate(e.target.value); setPublicLetterPage(1); }}
+                        />
+                      </div>
+                    </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
@@ -1382,7 +1568,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white">
-                        {summary?.recentLetters.map((letter) => (
+                        {paginatedPublicLetters.map((letter) => (
                           <tr key={letter.id} className="hover:bg-slate-50 transition-colors">
                             <td className="px-6 py-4 text-sm text-slate-600">{new Date(letter.receipt_date).toLocaleDateString('id-ID')}</td>
                             <td className="px-6 py-4 text-sm font-medium text-slate-900">{letter.origin}</td>
@@ -1399,14 +1585,21 @@ export default function App() {
                             </td>
                           </tr>
                         ))}
-                        {(!summary || summary.recentLetters.length === 0) && (
+                        {paginatedPublicLetters.length === 0 && (
                           <tr>
-                            <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">Belum ada surat masuk.</td>
+                            <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">Tidak ada surat ditemukan.</td>
                           </tr>
                         )}
                       </tbody>
                     </table>
                   </div>
+                  <PaginationUI 
+                    totalItems={filteredPublicLetters.length} 
+                    currentPage={publicLetterPage} 
+                    pageSize={publicPageSize} 
+                    onPageChange={setPublicLetterPage}
+                    showPageSize={false}
+                  />
                 </div>
               </motion.div>
             )}
@@ -1946,7 +2139,13 @@ export default function App() {
                   </table>
                 </div>
                 
-                <PaginationUI totalItems={filteredLetters.length} currentItemsCount={paginatedLetters.length} />
+                <PaginationUI 
+                  totalItems={filteredLetters.length} 
+                  currentPage={currentPage} 
+                  pageSize={pageSize} 
+                  onPageChange={setCurrentPage} 
+                  onPageSizeChange={setPageSize} 
+                />
               </div>
             </motion.div>
           )}
@@ -2036,7 +2235,13 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-                <PaginationUI totalItems={filteredDispositions.length} currentItemsCount={paginatedDispositions.length} />
+                <PaginationUI 
+                  totalItems={filteredDispositions.length} 
+                  currentPage={currentPage} 
+                  pageSize={pageSize} 
+                  onPageChange={setCurrentPage} 
+                  onPageSizeChange={setPageSize} 
+                />
               </div>
             </motion.div>
           )}
@@ -2109,7 +2314,13 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-                <PaginationUI totalItems={filteredAgendas.length} currentItemsCount={paginatedAgendas.length} />
+                <PaginationUI 
+                  totalItems={filteredAgendas.length} 
+                  currentPage={currentPage} 
+                  pageSize={pageSize} 
+                  onPageChange={setCurrentPage} 
+                  onPageSizeChange={setPageSize} 
+                />
               </div>
             </motion.div>
           )}
