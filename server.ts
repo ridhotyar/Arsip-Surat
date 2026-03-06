@@ -557,6 +557,7 @@ const PORT = 3000;
       });
 
       const agendaOPD = [...opdAgendasFromDispo, ...opdAgendasFromKaban]
+        .filter(item => item.activity_time || item.activity_location)
         .sort((a, b) => {
           const timeA = a.activity_time ? new Date(a.activity_time).getTime() : 0;
           const timeB = b.activity_time ? new Date(b.activity_time).getTime() : 0;

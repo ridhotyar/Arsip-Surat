@@ -2217,11 +2217,11 @@ export default function App() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-500 uppercase">Waktu Kegiatan</label>
-                  <input name="activity_time" type="datetime-local" required defaultValue={editingLetter?.activity_time} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <input name="activity_time" type="datetime-local" defaultValue={editingLetter?.activity_time} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-500 uppercase">Lokasi Kegiatan</label>
-                  <input name="activity_location" type="text" required defaultValue={editingLetter?.activity_location} placeholder="Contoh: Ruang Rapat Lantai 2" className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <input name="activity_location" type="text" defaultValue={editingLetter?.activity_location} placeholder="Contoh: Ruang Rapat Lantai 2" className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-500 uppercase">Ringkasan Isi</label>
@@ -2423,12 +2423,12 @@ export default function App() {
 
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-500 uppercase">Waktu Kegiatan</label>
-                  <input name="activity_time" type="datetime-local" required defaultValue={editingAgenda?.activity_time} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <input name="activity_time" type="datetime-local" defaultValue={editingAgenda?.activity_time} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-500 uppercase">Lokasi Kegiatan</label>
-                  <input name="activity_location" type="text" required defaultValue={editingAgenda?.activity_location} placeholder="Contoh: Aula Kantor" className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <input name="activity_location" type="text" defaultValue={editingAgenda?.activity_location} placeholder="Contoh: Aula Kantor" className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
                 </div>
 
                 <div className="space-y-1">
