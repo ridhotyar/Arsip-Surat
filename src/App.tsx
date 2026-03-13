@@ -1608,7 +1608,7 @@ export default function App() {
 
         <footer className="bg-white border-t border-slate-200 py-6 mt-auto">
           <div className="max-w-7xl mx-auto px-4 text-center text-slate-400 text-sm">
-            &copy; 2024 BAKESBANGPOLDAGRI PROVINSI NTB. All rights reserved.
+            &copy; 2026 BAKESBANGPOLDAGRI PROVINSI NTB. All rights reserved.
           </div>
         </footer>
 
