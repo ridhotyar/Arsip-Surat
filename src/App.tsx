@@ -875,7 +875,7 @@ export default function App() {
             <div class="footer-col">
               <div class="footer-title">Paraf/Tanggal</div>
               <div class="signature-area">
-                <div class="signature-title">Plh. KEPALA BAKESBANGPOLDAGRI PROVINSI NTB,</div>
+                <div class="signature-title">KEPALA BAKESBANGPOLDAGRI PROVINSI NTB,</div>
                 <div style="height: 90px;"></div>
                 <div class="signature-line"></div>
                 <div class="nip-line">NIP. __________________</div>
@@ -941,7 +941,7 @@ export default function App() {
             .checkbox-col:last-child { border-right: none; }
             .checkbox-title { font-weight: bold; text-align: center; border-bottom: 1px solid #000; margin: -5px -5px 5px -5px; padding: 3px; background: #f5f5f5; font-size: 14px; }
             
-            .checkbox-item { display: flex; align-items: flex-start; gap: 5px; margin-bottom: 15px; font-size: 18px; }
+            .checkbox-item { display: flex; align-items: flex-start; gap: 5px; margin-bottom: 18px; font-size: 18px; }
             .box { width: 18px; height: 18px; border: 1px solid #000; flex-shrink: 0; margin-top: 1px; }
             
             .footer-section { display: grid; grid-template-columns: 1fr 1fr;}
