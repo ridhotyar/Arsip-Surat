@@ -1416,7 +1416,7 @@ export default function App() {
               <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-xl">
                 S
               </div>
-              <h1 className="font-bold text-xl tracking-tight text-slate-800">SISA</h1>
+              <h1 className="font-bold text-xl tracking-tight text-slate-800">SIPESA</h1>
             </div>
             <button 
               onClick={() => setShowLoginModal(true)}
@@ -1431,8 +1431,8 @@ export default function App() {
         {/* Public Content */}
         <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
           <div className="mb-8 text-center sm:text-left">
-            <h2 className="text-3xl font-bold text-slate-900">Informasi Agenda & Surat</h2>
-            <p className="text-slate-500 mt-2">Selamat datang di Sistem Informasi Surat & Agenda (SISA)</p>
+            <h2 className="text-3xl font-bold text-slate-900">Informasi Pembukuan Surat Masuk</h2>
+            <p className="text-slate-500 mt-2">Selamat datang di Sistem Informasi Pembukuan Surat Masuk (SIPESA)</p>
           </div>
 
           <AnimatePresence mode="wait">
@@ -1725,7 +1725,7 @@ export default function App() {
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-xl">
               S
             </div>
-            <h1 className="font-bold text-xl tracking-tight text-slate-800">SISA</h1>
+            <h1 className="font-bold text-xl tracking-tight text-slate-800">SIPESA</h1>
           </div>
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-slate-600">
             <X size={20} />
